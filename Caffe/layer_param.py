@@ -2,16 +2,16 @@ from __future__ import absolute_import
 from . import caffe_pb2 as pb
 import numpy as np
 
-def pair_process(item,strict_one=False):
+def pair_process(item,strict_one=True):
     if hasattr(item,'__iter__'):
         for i in item:
             if i!=item[0]:
                 if strict_one:
                     raise ValueError("number in item {} must be the same".format(item))
                 else:
-                    print("IMPORTANT WARNING: number in item {} is not the same,try hieht and wight spilt up".format(item))
-        return item
-    return [item]
+                    print("IMPORTANT WARNING: number in item {} must be the same".format(item))
+        return item[0]
+    return item
 
 def pair_reduce(item):
     if hasattr(item,'__iter__'):
@@ -32,13 +32,15 @@ class Layer_param():
         self.bottom=self.param.bottom
         self.bottom.extend(bottom)
 
-    def fc_param(self, num_output, weight_filler='xavier', bias_filler='constant'):
+    def fc_param(self, num_output, weight_filler='xavier', bias_filler='constant',has_bias=True):
         if self.type != 'InnerProduct':
             raise TypeError('the layer type must be InnerProduct if you want set fc param')
         fc_param = pb.InnerProductParameter()
         fc_param.num_output = num_output
         fc_param.weight_filler.type = weight_filler
-        fc_param.bias_filler.type = bias_filler
+        fc_param.bias_term = has_bias
+        if has_bias:
+            fc_param.bias_filler.type = bias_filler
         self.param.inner_product_param.CopyFrom(fc_param)
 
     def conv_param(self, num_output, kernel_size, stride=(1), pad=(0,),
@@ -54,8 +56,8 @@ class Layer_param():
             bias_filler_type: the bias filler type
         Returns:
         """
-        if self.type!='Convolution':
-            raise TypeError('the layer type must be Convolution if you want set conv param')
+        if self.type not in ['Convolution','Deconvolution']:
+            raise TypeError('the layer type must be Convolution or Deconvolution if you want set conv param')
         conv_param=pb.ConvolutionParameter()
         conv_param.num_output=num_output
         conv_param.kernel_size.extend(pair_reduce(kernel_size))
@@ -69,24 +71,57 @@ class Layer_param():
             conv_param.dilation.extend(pair_reduce(dilation))
         if groups:
             conv_param.group=groups
+            if groups != 1:
+                conv_param.engine = 1
         self.param.convolution_param.CopyFrom(conv_param)
 
-    def pool_param(self,type='MAX',kernel_size=2,stride=2,pad=None):
+    def norm_param(self, eps):
+        """
+        add a conv_param layer if you spec the layer type "Convolution"
+        Args:
+            num_output: a int
+            kernel_size: int list
+            stride: a int list
+            weight_filler_type: the weight filer type
+            bias_filler_type: the bias filler type
+        Returns:
+        """
+        l2norm_param = pb.NormalizeParameter()
+        l2norm_param.across_spatial = False
+        l2norm_param.channel_shared = False
+        l2norm_param.eps = eps
+        self.param.norm_param.CopyFrom(l2norm_param)
+
+
+    def permute_param(self, order1, order2, order3, order4):
+        """
+        add a conv_param layer if you spec the layer type "Convolution"
+        Args:
+            num_output: a int
+            kernel_size: int list
+            stride: a int list
+            weight_filler_type: the weight filer type
+            bias_filler_type: the bias filler type
+        Returns:
+        """
+        permute_param = pb.PermuteParameter()
+        permute_param.order.extend([order1, order2, order3, order4])
+
+        self.param.permute_param.CopyFrom(permute_param)
+
+
+    def pool_param(self,type='MAX',kernel_size=2,stride=2,pad=None, ceil_mode = True):
         pool_param=pb.PoolingParameter()
         pool_param.pool=pool_param.PoolMethod.Value(type)
-        if len(pair_process(kernel_size)) > 1:
-            pool_param.kernel_h = kernel_size[0]
-            pool_param.kernel_w = kernel_size[1]
-        else:
-            pool_param.kernel_size=kernel_size
-        if len(pair_process(stride)) > 1:
-            pool_param.stride_h = stride[0]
-            pool_param.stride_w = stride[1]
-        else:
-            pool_param.stride=stride   
-        
+        pool_param.kernel_size=pair_process(kernel_size)
+        pool_param.stride=pair_process(stride)
+        pool_param.ceil_mode=ceil_mode
         if pad:
-            pool_param.pad=pad
+            if isinstance(pad,tuple):
+                pool_param.pad_h = pad[0]
+                pool_param.pad_w = pad[1]
+            else:
+                pool_param.pad=pad
         self.param.pooling_param.CopyFrom(pool_param)
 
     def batch_norm_param(self,use_global_stats=0,moving_average_fraction=None,eps=None):
@@ -97,6 +132,36 @@ class Layer_param():
         if eps:
             bn_param.eps = eps
         self.param.batch_norm_param.CopyFrom(bn_param)
+
+    # layer
+    # {
+    #     name: "upsample_layer"
+    #     type: "Upsample"
+    #     bottom: "some_input_feature_map"
+    #     bottom: "some_input_pool_index"
+    #     top: "some_output"
+    #     upsample_param {
+    #         upsample_h: 224
+    #         upsample_w: 224
+    #     }
+    # }
+    def upsample_param(self,size=None, scale_factor=None):
+        upsample_param=pb.UpsampleParameter()
+        if scale_factor:
+            if isinstance(scale_factor,int):
+                upsample_param.scale = scale_factor
+            else:
+                upsample_param.scale_h = scale_factor[0]
+                upsample_param.scale_w = scale_factor[1]
+
+        if size:
+            if isinstance(size,int):
+                upsample_param.upsample_h = size
+            else:
+                upsample_param.upsample_h = size[0] * scale_factor
+                upsample_param.\
+                    upsample_w = size[1] * scale_factor
+        self.param.upsample_param.CopyFrom(upsample_param)
 
     def add_data(self,*args):
         """Args are data numpy array
