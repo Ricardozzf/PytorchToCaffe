@@ -74,6 +74,32 @@ class Layer_param():
             if groups != 1:
                 conv_param.engine = 1
         self.param.convolution_param.CopyFrom(conv_param)
+    
+    def deconv_param(self, num_output, kernel_size, stride=(1), pad=(0,),
+                   weight_filler_type='xavier', bias_filler_type='constant',
+                   bias_term=True, dilation=1, groups=None, deformable_group=None):
+        if self.type not in ['DeformableConvolution']:
+            raise TypeError('the layer type must be Deconvolution if you want set conv param')
+        deconv_param=pb.DeformableConvolutionParameter()
+        deconv_param.num_output=num_output
+        deconv_param.bias_term=bias_term
+        deconv_param.pad.extend(pair_reduce(pad))
+        deconv_param.kernel_size.extend(pair_reduce(kernel_size))
+        deconv_param.stride.extend(pair_reduce(stride))
+        deconv_param.dilation.extend(pair_reduce(dilation))
+        
+        deconv_param.weight_filler.type=weight_filler_type
+        if bias_term:
+            deconv_param.bias_filler.type = bias_filler_type
+        if groups:
+            deconv_param.group=groups
+            if groups != 1:
+                deconv_param.engine = 1
+        if deformable_group:
+            deconv_param.deformable_group = deformable_group
+            if groups != 1:
+                deconv_param.engine = 1
+        self.param.deformable_convolution_param.CopyFrom(deconv_param)
 
     def norm_param(self, eps):
         """
@@ -110,12 +136,12 @@ class Layer_param():
         self.param.permute_param.CopyFrom(permute_param)
 
 
-    def pool_param(self,type='MAX',kernel_size=2,stride=2,pad=None, ceil_mode = True):
+    def pool_param(self,type='MAX',kernel_size=2,stride=2,pad=None, round_mode='FLOOR'):
         pool_param=pb.PoolingParameter()
         pool_param.pool=pool_param.PoolMethod.Value(type)
         pool_param.kernel_size=pair_process(kernel_size)
         pool_param.stride=pair_process(stride)
-        pool_param.ceil_mode=ceil_mode
+        pool_param.round_mode = pool_param.RoundMode.Value(round_mode)
         if pad:
             if isinstance(pad,tuple):
                 pool_param.pad_h = pad[0]

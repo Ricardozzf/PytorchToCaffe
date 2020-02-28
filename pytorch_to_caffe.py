@@ -7,6 +7,9 @@ from torch.autograd import Variable
 from Caffe import layer_param
 from torch.nn.modules.utils import _pair
 import numpy as np
+from torch.nn.modules.utils import _list_with_default
+#import model.Centernet as cet
+import DCN
 
 """
 How to support a new layer type:
@@ -97,8 +100,51 @@ class TransLog(object):
 log=TransLog()
 
 layer_names={}
+
+# :to merge offset weight into weight
+def _dcn2d(raw, input, weight, bias,
+            offset,
+            kernel_h, kernel_w,
+            stride_h, stride_w,
+            padding_h, padding_w,
+            dilation_h, dilation_w,
+            group,
+            deformable_groups,
+            im2col_step):
+    print('dcn: ', log.blobs(input))
+    x = raw(input, weight, bias,
+            offset,
+            kernel_h, kernel_w,
+            stride_h, stride_w,
+            padding_h, padding_w,
+            dilation_h, dilation_w,
+            group,
+            deformable_groups,
+            im2col_step)
+
+    name=log.add_layer(name='deconv')
+    log.add_blobs([x],name='deconv_blob')
+    layer=caffe_net.Layer_param(name=name, type='DeformableConvolution',
+                                bottom=[log.blobs(input), log.blobs(offset)], top=[log.blobs(x)])
+
+    stride = [stride_h,stride_w]
+    padding = [padding_h, padding_w]
+    dilation = [dilation_h, dilation_w]
+    layer.deconv_param(x.size()[1], weight.size()[2:], stride=_pair(stride),
+                     pad=_pair(padding),dilation=_pair(dilation),
+                     bias_term=bias is not None,
+                     groups=group, 
+                     deformable_group=deformable_groups)
+    if bias is not None:
+        layer.add_data(weight.cpu().data.numpy(), bias.cpu().data.numpy())
+    else:
+        layer.param.deformable_convolution_param.bias_term = False
+        layer.add_data(weight.cpu().data.numpy())
+    log.cnet.add_layer(layer)
+    return x
+
 def _conv2d(raw,input, weight, bias=None, stride=1, padding=0, dilation=1, groups=1):
-    print('conv: ',log.blobs(input))
+
     x=raw(input,weight,bias,stride,padding,dilation,groups)
     name=log.add_layer(name='conv')
     log.add_blobs([x],name='conv_blob')
@@ -160,6 +206,7 @@ def _split(raw,tensor, split_size, dim=0):
 
 def _pool(type,raw,input,x,kernel_size,stride,padding,ceil_mode):
     # TODO dilation,ceil_mode,return indices
+    round_mode = 'CEIL' if ceil_mode else 'FLOOR'
     layer_name = log.add_layer(name='{}_pool'.format(type))
     top_blobs = log.add_blobs([x], name='{}_pool_blob'.format(type))
     layer = caffe_net.Layer_param(name=layer_name, type='Pooling',
@@ -167,7 +214,7 @@ def _pool(type,raw,input,x,kernel_size,stride,padding,ceil_mode):
     # TODO w,h different kernel, stride and padding
     # processing ceil mode
     layer.pool_param(kernel_size=kernel_size, stride=kernel_size if stride is None else stride,
-                     pad=padding, type=type.upper() , ceil_mode = ceil_mode)
+                     pad=padding, type=type.upper() , round_mode = round_mode)
     log.cnet.add_layer(layer)
     if ceil_mode==False and stride is not None:
         oheight = (input.size()[2] - _pair(kernel_size)[0] + 2 * _pair(padding)[0]) % (_pair(stride)[0])
@@ -225,7 +272,7 @@ def _cat(raw,inputs, dimension=0):
     x=raw(inputs, dimension)
     bottom_blobs=[]
     for input in inputs:
-        bottom_blobs.append(log.blobs(input))
+        bottom_blobs.append(log.blobs(input)) 
     layer_name=log.add_layer(name='cat')
     top_blobs=log.add_blobs([x],name='cat_blob')
     layer=caffe_net.Layer_param(name=layer_name,type='Concat',
@@ -331,9 +378,11 @@ def _softmax(raw, input, dim=None, _stacklevel=3):
 def _batch_norm(raw,input, running_mean, running_var, weight=None, bias=None,
                training=False, momentum=0.1, eps=1e-5):
     # because the runing_mean and runing_var will be changed after the _batch_norm operation, we first save the parameters
-
+    #print("**********************input id:{}".format(id(input)))
     x = raw(input, running_mean, running_var, weight, bias,
                training, momentum, eps)
+    #print("**********************output id:{}".format(id(x)))
+
     bottom_blobs = [log.blobs(input)]
     layer_name1 = log.add_layer(name='batch_norm')
     top_blobs = log.add_blobs([x], name='batch_norm_blob')
@@ -666,6 +715,7 @@ class Rp(object):
         self.raw=raw
 
     def __call__(self,*args,**kwargs):
+        print("***************{}***************".format(self.raw.__name__))
         if not NET_INITTED:
             return self.raw(*args,**kwargs)
         for stack in traceback.walk_stack(None):
@@ -689,6 +739,7 @@ F.relu=Rp(F.relu,_relu)
 F.leaky_relu=Rp(F.leaky_relu,_leaky_relu)
 F.max_pool2d=Rp(F.max_pool2d,_max_pool2d)
 F.avg_pool2d=Rp(F.avg_pool2d,_avg_pool2d)
+F.adaptive_avg_pool2d = Rp(F.adaptive_avg_pool2d, _adaptive_avg_pool2d)
 F.dropout=Rp(F.dropout,_dropout)
 F.threshold=Rp(F.threshold,_threshold)
 F.prelu=Rp(F.prelu,_prelu)
@@ -702,6 +753,8 @@ F.tanh = Rp(F.tanh,_tanh)
 F.tanh = Rp(F.tanh,_tanh)
 F.hardtanh = Rp(F.hardtanh,_hardtanh)
 # F.l2norm = Rp(F.l2norm,_l2Norm)
+DCN.deform_conv_forward = Rp(DCN.deform_conv_forward, _dcn2d)
+
 
 torch.split=Rp(torch.split,_split)
 torch.max=Rp(torch.max,_max)
@@ -759,6 +812,7 @@ except:
         t.unsqueeze = _unsqueeze
         raw__expand_as__ = t.expand_as
         t.expand_as = _expand_as
+        raw__flatten__ = t.flatten
 
 
 def trans_net(net,input_var,name='TransferedPytorchModel'):
