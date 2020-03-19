@@ -827,6 +827,7 @@ def trans_net(net,input_var,name='TransferedPytorchModel'):
         layer_names[layer]=name
     print("torch ops name:", layer_names)
     out = net.forward(input_var)
+    import pdb; pdb.set_trace()
     print('Transform Completed')
 
 def save_prototxt(save_name):

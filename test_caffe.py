@@ -14,8 +14,6 @@ if __name__ == "__main__":
     net = caffe.Net(args.prototxt, args.caffemodel, caffe.TEST)
     net.blobs["blob1"].reshape(1, 3, 512, 512)
     net.blobs["blob1"].data[...] = data
-
     output = net.forward()
-    import pdb; pdb.set_trace()
     np.savetxt('out_caffe', output['relu_blob45'][0,0,:4,:4])
     print("Successed!")

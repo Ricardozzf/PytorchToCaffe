@@ -23,11 +23,11 @@ if __name__=='__main__':
     opt = opts().update_dataset_info_and_set_heads(opt, Dataset)
     net = create_model(opt.arch, opt.heads, opt.head_conv)
     net = load_model(net, "model_last.pth")
-    device = torch.device("cuda")
+    device = torch.device("cuda:0")
     data = data.to(device=device).type(torch.float)
     net = net.to(device)
     net.eval()
     
     out = net(data)
     import pdb; pdb.set_trace()
-    np.save('out_pytorch',out[0][0,0,:,:].detach().cpu().numpy())
+    np.savetxt('out_pytorch',out[0][0,0,:4,:4].detach().cpu().numpy())
