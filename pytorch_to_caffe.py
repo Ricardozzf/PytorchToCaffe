@@ -820,14 +820,17 @@ def trans_net(net,input_var,name='TransferedPytorchModel'):
     log.init([input_var])
     log.cnet.net.name=name
     log.cnet.net.input.extend([log.blobs(input_var)])
+    
     log.cnet.net.input_dim.extend(input_var.size())
+    
     global NET_INITTED
     NET_INITTED=True
+    
     for name,layer in net.named_modules():
         layer_names[layer]=name
     print("torch ops name:", layer_names)
     out = net.forward(input_var)
-    import pdb; pdb.set_trace()
+    
     print('Transform Completed')
 
 def save_prototxt(save_name):
@@ -836,3 +839,4 @@ def save_prototxt(save_name):
 
 def save_caffemodel(save_name):
     log.cnet.save(save_name)
+threshold

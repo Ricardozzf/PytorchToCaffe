@@ -7,7 +7,8 @@ if __name__ == "__main__":
     parser.add_argument("--prototxt", type=str, default="./centernet_dcnv2.prototxt")
     parser.add_argument("--caffemodel", type=str, default="./centernet_dcnv2.caffemodel")
     args = parser.parse_args(sys.argv[1:])
-    data = np.load('input.npy')
+    data = np.load('centernet_data.npy')
+    import pdb; pdb.set_trace()
     #data = np.random.randn(1,3,226,226)
     #np.save('input_alex',data)
     caffe.set_mode_gpu()
@@ -15,5 +16,6 @@ if __name__ == "__main__":
     net.blobs["blob1"].reshape(1, 3, 512, 512)
     net.blobs["blob1"].data[...] = data
     output = net.forward()
-    np.savetxt('out_caffe', output['relu_blob45'][0,0,:4,:4])
+    import pdb; pdb.set_trace()
+    np.savetxt('out_caffe', output['deconv_blob1'][0,0,:,:])
     print("Successed!")

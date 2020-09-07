@@ -7,6 +7,7 @@ from torch.autograd import Variable
 from torch.hub import load_state_dict_from_url
 import pytorch_to_caffe
 import numpy as np
+from trd.Dcn.modules.deform_conv import DeformConvPack as Dcnv2
 
 
 __all__ = ['AlexNet', 'alexnet']
@@ -22,38 +23,21 @@ class AlexNet(nn.Module):
     def __init__(self, num_classes=1000):
         super(AlexNet, self).__init__()
         self.features = nn.Sequential(
-            nn.Conv2d(3, 64, kernel_size=11, stride=4, padding=2),
-            nn.ReLU(inplace=True),
-            nn.MaxPool2d(kernel_size=3, stride=2),
-            nn.Conv2d(64, 192, kernel_size=5, padding=2),
-            nn.ReLU(inplace=True),
-            nn.MaxPool2d(kernel_size=3, stride=2),
-            nn.Conv2d(192, 384, kernel_size=3, padding=1),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(384, 256, kernel_size=3, padding=1),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(256, 256, kernel_size=3, padding=1),
+            nn.Conv2d(1, 3, kernel_size=3, stride=1, padding=1),
             nn.ReLU(inplace=True),
             nn.MaxPool2d(kernel_size=3, stride=2),
         )
-        self.avgpool = nn.AdaptiveAvgPool2d((6, 6))
-        self.classifier = nn.Sequential(
-            nn.Dropout(),
-            nn.Linear(256 * 6 * 6, 4096),
-            nn.ReLU(inplace=True),
-            nn.Dropout(),
-            nn.Linear(4096, 4096),
-            nn.ReLU(inplace=True),
-            nn.Linear(4096, num_classes),
-        )
+        self.dcn = Dcnv2(3,3,3,1,1)
+        for layer in self.features:
+            if isinstance(layer,nn.Conv2d):
+                torch.nn.init.kaiming_uniform_(layer.weight)
+                layer.bias.data.zero_()
+        
 
     def forward(self, x):
         x = self.features(x)
-        x = self.avgpool(x)
-        shape = x.shape
-        s = shape[1]*shape[2]*shape[3]
-        x = x.view(shape[0], s)
-        x = self.classifier(x)
+        
+        x = self.dcn(x)
         return x
 
 
@@ -76,8 +60,9 @@ def register(module):
     module.register_forward_hook(module_hook)
 
 def module_hook(module, input, output):
-    print("input:{}".format(id(input)))
-    print("output:{}".format(id(output)))
+    #print("input:{}".format(id(input)))
+    #print("output:{}".format(id(output)))
+    print(output[0,0,:,:])
 
 def _Inplace(net):
     for module in net.modules():
@@ -88,18 +73,26 @@ def _Inplace(net):
 
 if __name__=='__main__':
     name='alexnet'
-    net=alexnet(pretrained=True)
+    net=AlexNet()
     net.eval()
+    net.cuda()
+    torch.save(net,"alex.pt")
+    #net = torch.load("alex.pt")
+    #net.dcn.conv_offset.register_forward_hook(module_hook)
+    
 
     #net = _Inplace(net)
     #net.apply(register)
     #input=Variable(torch.ones([1,3,226,226]))
     
     input = np.load('input_alex.npy')
-    out = net(torch.from_numpy(input).type(torch.float32))
-    print(out[0,:10])
-    '''
-    pytorch_to_caffe.trans_net(net,input,name)
+    input_tensor = torch.from_numpy(input).type(torch.float32).to("cuda")
+    out = net(input_tensor)
+    
+    #np.savetxt("tras_tensor",out[0,0,:,:].cpu().detach().numpy())
+
+    
+    pytorch_to_caffe.trans_net(net,input_tensor,name)
     pytorch_to_caffe.save_prototxt('{}.prototxt'.format(name))
     pytorch_to_caffe.save_caffemodel('{}.caffemodel'.format(name))
-    '''
+    
